@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'views/camera_screen.dart';
-import 'views/result_screen.dart';
+import 'screens/camera_screen.dart';
+import 'screens/result_screen.dart';
 
 void main() {
   runApp(MyApp());
