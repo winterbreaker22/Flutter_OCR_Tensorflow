@@ -24,7 +24,7 @@ Future<Uint8List> preprocessImage(String imagePath, int targetWidth, int targetH
 
   final resizedImage = img.copyResize(originalImage, width: newWidth, height: newHeight);
 
-  final paddedImage = img.Image(targetWidth, targetHeight);
+  final paddedImage = img.Image(width: targetWidth, height: targetHeight);
   final xOffset = ((targetWidth - newWidth) / 2).round();
   final yOffset = ((targetHeight - newHeight) / 2).round();
 
