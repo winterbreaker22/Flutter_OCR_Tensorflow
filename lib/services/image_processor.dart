@@ -28,7 +28,7 @@ Future<Uint8List> preprocessImage(String imagePath, int targetWidth, int targetH
   final xOffset = ((targetWidth - newWidth) / 2).round();
   final yOffset = ((targetHeight - newHeight) / 2).round();
 
-  img.copyInto(paddedImage, resizedImage, dstX: xOffset, dstY: yOffset);
+  img.compositeImage(paddedImage, resizedImage, dstX: xOffset, dstY: yOffset);
 
   return Uint8List.fromList(img.encodePng(paddedImage));
 }
