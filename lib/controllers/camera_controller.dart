@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:get/get.dart';
-import '../../../core/utils/image_processor.dart';
+import '../services/image_processor.dart';
 
 class CameraViewController extends GetxController {
   late CameraController cameraController;
