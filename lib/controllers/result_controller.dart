@@ -14,7 +14,7 @@ class ResultController extends GetxController {
   }
 
   Future<void> loadModel() async {
-    interpreter = await Interpreter.fromAsset('model.tflite');
+    interpreter = await Interpreter.fromAsset('assets/model.tflite');
   }
 
   Future<void> processImage(Uint8List imageBytes) async {
