@@ -20,7 +20,7 @@ class CameraViewController extends GetxController {
 
   Future<void> _initializeCamera() async {
     final cameras = await availableCameras();
-    cameraController = CameraController(cameras.first, ResolutionPreset.high);
+    cameraController = CameraController(cameras[1], ResolutionPreset.high);
     await cameraController.initialize();
     isInitialized.value = true;
   }
