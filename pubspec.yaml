@@ -39,6 +39,7 @@ dependencies:
   tflite_flutter: ^0.11.0
   google_mlkit_text_recognition: ^0.14.0
   get: ^4.6.6
+  permission_handler: ^11.3.1
   
 
 dev_dependencies:
@@ -66,6 +67,7 @@ flutter:
   # To add assets to your application, add an assets section, like this:
   assets:
     - assets/model.tflite
+    - assets/label_map.pbtxt
   #   - images/a_dot_burr.jpeg
   #   - images/a_dot_ham.jpeg
 

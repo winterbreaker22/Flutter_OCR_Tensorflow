@@ -4,6 +4,7 @@ import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import 'package:camera/camera.dart';
+import 'dart:ui' as ui;
 
 class ImageController extends GetxController {
   final Rx<File?> capturedImage = Rx<File?>(null);
@@ -22,7 +23,7 @@ class ImageController extends GetxController {
   }
 
   Future<void> _loadModel() async {
-    tfliteInterpreter = await Interpreter.fromAsset('model.tflite');
+    tfliteInterpreter = await Interpreter.fromAsset('assets/model.tflite');
   }
 
   Future<void> _loadLabelMap() async {
@@ -96,8 +97,11 @@ class ImageController extends GetxController {
 
     final resizedImage = img.Image(width: targetSize, height: targetSize);
 
-    // Center the resized image onto a 512x512 canvas
-    img.compositeImage(resizedImage, originalImage);
+    // Create a blank white image with a black background
+    img.fill(resizedImage, color: img.ColorRgb8(0, 0, 0));
+
+    // Composite resized image on top of the blank 512x512 image
+    img.compositeImage(resizedImage, originalImage, dstX: xOffset, dstY: yOffset);
 
     return {
       'image': resizedImage,
@@ -106,7 +110,6 @@ class ImageController extends GetxController {
     };
   }
 
-  // Convert the resized image into a format suitable for the model
   List<double> _convertImageToInputData(img.Image resizedImage) {
     List<double> inputData = [];
     
