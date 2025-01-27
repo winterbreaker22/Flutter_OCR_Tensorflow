@@ -1,54 +1,63 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:image_picker/image_picker.dart';
-import '../controllers/camera_controller.dart';
+import 'package:camera/camera.dart';
+import '../controllers/image_controller.dart';
 
-class CameraScreen extends StatelessWidget {
-  final CameraController cameraController = Get.put(CameraController());
+class CameraScreen extends StatefulWidget {
+  const CameraScreen({Key? key}) : super(key: key);
+
+  @override
+  State<CameraScreen> createState() => _CameraScreenState();
+}
+
+class _CameraScreenState extends State<CameraScreen> {
+  late List<CameraDescription> _cameras;
+  late CameraController _cameraController;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeCamera();
+  }
+
+  Future<void> _initializeCamera() async {
+    _cameras = await availableCameras();
+    _cameraController = CameraController(_cameras[1], ResolutionPreset.medium);
+    await _cameraController.initialize();
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _cameraController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text("Document OCR with TensorFlow Lite")),
-      body: Column(
-        children: [
-          Obx(() {
-            if (cameraController.isProcessing.value) {
-              return CircularProgressIndicator();
-            }
-            return Container();
-          }),
-          Expanded(
-            child: CameraPreviewWidget(),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final picker = ImagePicker();
-              final imageFile = await picker.pickImage(source: ImageSource.camera);
+    if (!_cameraController.value.isInitialized) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
-              if (imageFile != null) {
-                final imageBytes = await imageFile.readAsBytes();
-                cameraController.processImage(imageBytes);
-              }
-            },
-            child: Text('Capture Image'),
-          ),
-          Obx(() {
-            if (cameraController.recognizedText.isNotEmpty) {
-              return ListView.builder(
-                shrinkWrap: true,
-                itemCount: cameraController.recognizedText.length,
-                itemBuilder: (context, index) {
-                  var box = cameraController.recognizedText[index];
-                  return ListTile(
-                    title: Text(box.text),
-                    subtitle: Text("Bounding box: ${box.box}"),
-                  );
+    return Scaffold(
+      appBar: AppBar(title: const Text("Camera Preview")),
+      body: Stack(
+        children: [
+          CameraPreview(_cameraController),
+          Positioned(
+            bottom: 20,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: ElevatedButton(
+                onPressed: () async {
+                  final image = await _cameraController.takePicture();
+                  Get.find<ImageController>().processImage(image);
                 },
-              );
-            }
-            return Container();
-          }),
+                child: const Text("Capture"),
+              ),
+            ),
+          )
         ],
       ),
     );
