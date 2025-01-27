@@ -4,7 +4,6 @@ import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import 'package:camera/camera.dart';
-import 'dart:ui' as ui;
 
 class ImageController extends GetxController {
   final Rx<File?> capturedImage = Rx<File?>(null);
@@ -23,8 +22,21 @@ class ImageController extends GetxController {
   }
 
   Future<void> _loadModel() async {
-    tfliteInterpreter = await Interpreter.fromAsset('assets/model.tflite');
+    try {
+      // Configure InterpreterOptions
+      final interpreterOptions = InterpreterOptions();
+
+      // Initialize the interpreter with options
+      tfliteInterpreter = await Interpreter.fromAsset(
+        'assets/model.tflite',
+        options: interpreterOptions,
+      );
+    } catch (e) {
+      print('Error loading model: $e');
+      rethrow;
+    }
   }
+
 
   Future<void> _loadLabelMap() async {
     final labelData = await rootBundle.loadString('assets/label_map.pbtxt');
@@ -78,7 +90,7 @@ class ImageController extends GetxController {
       boundingBoxes.add(adjustedBox);
 
       final classId = detection['classId'] as int;
-      final label = labelMap[classId];
+      final label = classId > 0 && classId <= labelMap.length ? labelMap[classId - 1] : 'Unknown';
       extractedTexts.add('$label (${(detection['confidence'] * 100).toStringAsFixed(2)}%)');
     }
 
@@ -110,30 +122,31 @@ class ImageController extends GetxController {
     };
   }
 
-  List<double> _convertImageToInputData(img.Image resizedImage) {
-    List<double> inputData = [];
-    
+  List<int> _convertImageToInputData(img.Image resizedImage) {
+    List<int> inputData = [];
+
     // Loop through every pixel of the resized image
     for (int y = 0; y < resizedImage.height; y++) {
       for (int x = 0; x < resizedImage.width; x++) {
         // Get the pixel value at (x, y)
         img.Pixel pixel = resizedImage.getPixel(x, y);
-        
-        // Explicitly cast the components to int
+
+        // Explicitly cast the components to int (0-255 range)
         int red = pixel.r.toInt();
         int green = pixel.g.toInt();
         int blue = pixel.b.toInt();
 
-        // Normalize to range [-0.5, 0.5]
-        inputData.add((red / 255.0) - 0.5);   // Normalize Red
-        inputData.add((green / 255.0) - 0.5); // Normalize Green
-        inputData.add((blue / 255.0) - 0.5);  // Normalize Blue
+        // Convert the RGB values to uint8 (0-255 range)
+        inputData.add(red);
+        inputData.add(green);
+        inputData.add(blue);
       }
     }
+
     return inputData;
   }
 
-  List<Map<String, dynamic>> _runInference(List<double> inputData) {
+  List<Map<String, dynamic>> _runInference(List<int> inputData) {
     // Create an input tensor with a single image
     final input = [inputData];
 
