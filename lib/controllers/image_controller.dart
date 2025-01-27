@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'dart:io';
 import 'package:get/get.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
@@ -23,10 +24,7 @@ class ImageController extends GetxController {
 
   Future<void> _loadModel() async {
     try {
-      // Configure InterpreterOptions
       final interpreterOptions = InterpreterOptions();
-
-      // Initialize the interpreter with options
       tfliteInterpreter = await Interpreter.fromAsset(
         'assets/model.tflite',
         options: interpreterOptions,
@@ -36,7 +34,6 @@ class ImageController extends GetxController {
       rethrow;
     }
   }
-
 
   Future<void> _loadLabelMap() async {
     final labelData = await rootBundle.loadString('assets/label_map.pbtxt');
@@ -57,41 +54,53 @@ class ImageController extends GetxController {
 
   Future<void> processImage(XFile image) async {
     final originalImageFile = File(image.path);
-    capturedImage.value = originalImageFile;
-
-    // Load image using `image` package to get its dimensions
     final img.Image originalImage = img.decodeImage(await originalImageFile.readAsBytes())!;
     final originalWidth = originalImage.width;
     final originalHeight = originalImage.height;
 
-    // Resize and pad image to 512x512 while keeping aspect ratio
     final preprocessResult = _preprocessImage(originalImage, originalWidth, originalHeight);
-    final resizedImage = preprocessResult['image'] as img.Image;
+    final paddedImage = preprocessResult['image'] as img.Image;
     final scaleFactors = preprocessResult['scaleFactors'] as Map<String, double>;
     final paddingOffsets = preprocessResult['paddingOffsets'] as Map<String, int>;
 
-    // Convert resized image to tensor-like data (using `image` package for simplicity)
-    final inputData = _convertImageToInputData(resizedImage);
+    final inputTensor = _convertImageToInputTensor(paddedImage);
 
-    // Run inference with the model
-    final output = _runInference(inputData);
+    // Output buffers with correct shapes and data types
+    final outputBoxes = List.generate(10, (_) => List.filled(4, 0.0)); 
+    final outputClasses = List.filled(10, 0); 
+    final outputScores = List.filled(10, 0.0);
 
-    // Parse detection results
+    try {
+      tfliteInterpreter.runForMultipleInputs([inputTensor], {
+        0: outputBoxes,
+        1: outputClasses,
+        2: outputScores,
+      });
+    } catch (e) {
+      print("Error during inference: $e");
+      return;
+    }
+    
+    // Parse the results
     boundingBoxes.clear();
     extractedTexts.clear();
-    for (final detection in output) {
-      final adjustedBox = _adjustBoxToOriginalSize(
-        detection['box'],
-        scaleFactors,
-        paddingOffsets,
-        originalWidth,
-        originalHeight,
-      );
-      boundingBoxes.add(adjustedBox);
+    for (int i = 0; i < outputScores.length; i++) {
+      if (outputScores[i] >= 0.12) { // Confidence threshold
+        final adjustedBox = _adjustBoxToOriginalSize(
+          Rect.fromLTRB(
+            outputBoxes[i][1], outputBoxes[i][0], outputBoxes[i][3], outputBoxes[i][2]
+          ),
+          scaleFactors,
+          paddingOffsets,
+          originalWidth,
+          originalHeight,
+        );
+        boundingBoxes.add(adjustedBox);
 
-      final classId = detection['classId'] as int;
-      final label = classId > 0 && classId <= labelMap.length ? labelMap[classId - 1] : 'Unknown';
-      extractedTexts.add('$label (${(detection['confidence'] * 100).toStringAsFixed(2)}%)');
+        final classId = outputClasses[i];
+        final label = labelMap[classId];
+        extractedTexts.add('$label (${(outputScores[i] * 100).toStringAsFixed(2)}%)');
+      }
     }
 
     Get.toNamed('/result');
@@ -107,75 +116,55 @@ class ImageController extends GetxController {
     final xOffset = (targetSize - newWidth) ~/ 2;
     final yOffset = (targetSize - newHeight) ~/ 2;
 
-    final resizedImage = img.Image(width: targetSize, height: targetSize);
-
-    // Create a blank white image with a black background
-    img.fill(resizedImage, color: img.ColorRgb8(0, 0, 0));
-
-    // Composite resized image on top of the blank 512x512 image
-    img.compositeImage(resizedImage, originalImage, dstX: xOffset, dstY: yOffset);
+    final resizedImage = img.copyResize(originalImage, width: newWidth, height: newHeight);
+    final paddedImage = img.Image(width: targetSize, height: targetSize);
+    img.fill(paddedImage, color: img.ColorRgb8(0, 0, 0)); // Black padding
+    img.compositeImage(paddedImage, resizedImage, dstX: xOffset, dstY: yOffset);
 
     return {
-      'image': resizedImage,
+      'image': paddedImage,
       'scaleFactors': {'xScale': scale, 'yScale': scale},
       'paddingOffsets': {'xOffset': xOffset, 'yOffset': yOffset},
     };
   }
 
-  List<int> _convertImageToInputData(img.Image resizedImage) {
-    List<int> inputData = [];
+  // Convert the image to the input tensor expected by the model (Uint8List)
+  Uint8List _convertImageToInputTensor(img.Image paddedImage) {
+    final width = paddedImage.width;
+    final height = paddedImage.height;
 
-    // Loop through every pixel of the resized image
-    for (int y = 0; y < resizedImage.height; y++) {
-      for (int x = 0; x < resizedImage.width; x++) {
-        // Get the pixel value at (x, y)
-        img.Pixel pixel = resizedImage.getPixel(x, y);
+    // Create Uint8List to hold raw RGB data (flattened format)
+    final inputTensor = Uint8List(width * height * 3);
+    int index = 0;
 
-        // Explicitly cast the components to int (0-255 range)
-        int red = pixel.r.toInt();
-        int green = pixel.g.toInt();
-        int blue = pixel.b.toInt();
-
-        // Convert the RGB values to uint8 (0-255 range)
-        inputData.add(red);
-        inputData.add(green);
-        inputData.add(blue);
+    // Populate inputTensor with RGB values
+    for (int y = 0; y < height; y++) {
+      for (int x = 0; x < width; x++) {
+        final pixel = paddedImage.getPixel(x, y); // Pixel as 0xAARRGGBB
+        inputTensor[index++] = pixel.r.toInt();   // Red channel
+        inputTensor[index++] = pixel.g.toInt(); // Green channel
+        inputTensor[index++] = pixel.b.toInt();  // Blue channel
       }
     }
 
-    return inputData;
-  }
+    // Debug: Check raw tensor content
+    print("Flattened Input Tensor Data : $inputTensor");
+    print("Flattened Tensor Length: ${inputTensor.length}");
 
-  List<Map<String, dynamic>> _runInference(List<int> inputData) {
-    // Create an input tensor with a single image
-    final input = [inputData];
+    // Reshape inputTensor into [1, height, width, 3]
+    // TensorFlow Lite expects a Uint8List in this format
+    final reshapedTensor = Uint8List(1 * height * width * 3);
+    int reshapedIndex = 0;
 
-    // Create output tensors for the boxes, classes, and scores
-    final outputBoxes = List.generate(10, (index) => List.filled(4, 0.0));
-    final outputClasses = List.filled(10, 0);
-    final outputScores = List.filled(10, 0.0);
-
-    // Run inference
-    tfliteInterpreter.runForMultipleInputs([input], {
-      0: outputBoxes,
-      1: outputClasses,
-      2: outputScores,
-    });
-
-    // Collect results
-    final detections = <Map<String, dynamic>>[];
-    for (int i = 0; i < outputScores.length; i++) {
-      if (outputScores[i] >= 0.5) {
-        detections.add({
-          'box': Rect.fromLTRB(
-            outputBoxes[i][0], outputBoxes[i][1], outputBoxes[i][2], outputBoxes[i][3]),
-          'classId': outputClasses[i],
-          'confidence': outputScores[i],
-        });
-      }
+    for (int i = 0; i < inputTensor.length; i++) {
+      reshapedTensor[reshapedIndex++] = inputTensor[i];
     }
 
-    return detections;
+    // Debug: Check reshaped tensor content
+    print("Reshaped Tensor Length: ${reshapedTensor.length}");
+    print("Reshaped Tensor Data (First 100 Bytes): $reshapedTensor");
+
+    return reshapedTensor; // Return tensor in required format
   }
 
   Rect _adjustBoxToOriginalSize(
