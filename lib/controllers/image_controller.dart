@@ -29,6 +29,7 @@ class ImageController extends GetxController {
         'assets/model.tflite',
         options: interpreterOptions,
       );
+      print('Model successfully loaded.');
     } catch (e) {
       print('Error loading model: $e');
       rethrow;
@@ -66,26 +67,44 @@ class ImageController extends GetxController {
     final inputTensor = _convertImageToInputTensor(paddedImage);
 
     // Output buffers with correct shapes and data types
-    final outputBoxes = List.generate(10, (_) => List.filled(4, 0.0)); 
-    final outputClasses = List.filled(10, 0); 
-    final outputScores = List.filled(10, 0.0);
+    final rawBoxes = List.generate(81840, (_) => List.filled(4, 0.0)); 
+    final multiclassScores = List.generate(100, (_) => List.filled(9, 0.0)); 
+    final outputClasses = List.filled(100, 0); 
+    final outputBoxes = List.generate(100, (_) => List.filled(4, 0.0)); 
+    final rawScores = List.generate(81840, (_) => List.filled(4, 0.0)); 
+    final numDetections = List.filled(1, 0.0); // Shape: (1)
+    final anchorIndices = List.filled(100, 0.0);
+    final outputScores = List.filled(100, 0.0);
 
     try {
       tfliteInterpreter.runForMultipleInputs([inputTensor], {
-        0: outputBoxes,
-        1: outputClasses,
-        2: outputScores,
+        0: rawBoxes,
+        1: multiclassScores,
+        2: outputClasses,
+        3: outputBoxes,
+        4: rawScores,
+        5: numDetections,
+        6: anchorIndices,
+        7: outputScores,
       });
     } catch (e) {
       print("Error during inference: $e");
       return;
     }
+
+    final inputTensorTemp = tfliteInterpreter.getInputTensor(0);
+    print('Input tensor: Shape: ${inputTensorTemp.shape}, Type: ${inputTensorTemp.type}');
+
+    for (int i = 0; i < tfliteInterpreter.getOutputTensors().length; i++) {
+      final outputTensor = tfliteInterpreter.getOutputTensor(i);
+      print('Output tensor $i: Shape: ${outputTensor.shape}, Type: ${outputTensor.type}');
+    }
+
     
-    // Parse the results
     boundingBoxes.clear();
     extractedTexts.clear();
     for (int i = 0; i < outputScores.length; i++) {
-      if (outputScores[i] >= 0.12) { // Confidence threshold
+      if (outputScores[i] >= 0.12) { 
         final adjustedBox = _adjustBoxToOriginalSize(
           Rect.fromLTRB(
             outputBoxes[i][1], outputBoxes[i][0], outputBoxes[i][3], outputBoxes[i][2]
@@ -128,43 +147,23 @@ class ImageController extends GetxController {
     };
   }
 
-  // Convert the image to the input tensor expected by the model (Uint8List)
   Uint8List _convertImageToInputTensor(img.Image paddedImage) {
     final width = paddedImage.width;
     final height = paddedImage.height;
 
-    // Create Uint8List to hold raw RGB data (flattened format)
-    final inputTensor = Uint8List(width * height * 3);
+    final inputTensor = Uint8List(1 * width * height * 3);
     int index = 0;
 
-    // Populate inputTensor with RGB values
     for (int y = 0; y < height; y++) {
       for (int x = 0; x < width; x++) {
-        final pixel = paddedImage.getPixel(x, y); // Pixel as 0xAARRGGBB
-        inputTensor[index++] = pixel.r.toInt();   // Red channel
-        inputTensor[index++] = pixel.g.toInt(); // Green channel
-        inputTensor[index++] = pixel.b.toInt();  // Blue channel
+        final pixel = paddedImage.getPixel(x, y); 
+        inputTensor[index++] = pixel.r.toInt(); 
+        inputTensor[index++] = pixel.g.toInt();
+        inputTensor[index++] = pixel.b.toInt();  
       }
     }
 
-    // Debug: Check raw tensor content
-    print("Flattened Input Tensor Data : $inputTensor");
-    print("Flattened Tensor Length: ${inputTensor.length}");
-
-    // Reshape inputTensor into [1, height, width, 3]
-    // TensorFlow Lite expects a Uint8List in this format
-    final reshapedTensor = Uint8List(1 * height * width * 3);
-    int reshapedIndex = 0;
-
-    for (int i = 0; i < inputTensor.length; i++) {
-      reshapedTensor[reshapedIndex++] = inputTensor[i];
-    }
-
-    // Debug: Check reshaped tensor content
-    print("Reshaped Tensor Length: ${reshapedTensor.length}");
-    print("Reshaped Tensor Data (First 100 Bytes): $reshapedTensor");
-
-    return reshapedTensor; // Return tensor in required format
+    return inputTensor;
   }
 
   Rect _adjustBoxToOriginalSize(
