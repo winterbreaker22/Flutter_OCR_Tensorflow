@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 import 'dart:io';
 import 'package:get/get.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
@@ -11,7 +10,7 @@ class ImageController extends GetxController {
   final RxList<Rect> boundingBoxes = RxList<Rect>();
   final RxList<String> extractedTexts = RxList<String>();
 
-  final int targetSize = 512;
+  final int targetSize = 512; // Target size for input tensor preprocessing
   late Interpreter tfliteInterpreter;
   late List<String> labelMap;
 
@@ -24,12 +23,14 @@ class ImageController extends GetxController {
 
   Future<void> _loadModel() async {
     try {
-      final interpreterOptions = InterpreterOptions();
+      final interpreterOptions = InterpreterOptions()
+        ..useNnApiForAndroid = true
+        ..addDelegate(XNNPackDelegate());
       tfliteInterpreter = await Interpreter.fromAsset(
         'assets/model.tflite',
         options: interpreterOptions,
       );
-      print('Model successfully loaded.');
+      print("Model loaded successfully.");
     } catch (e) {
       print('Error loading model: $e');
       rethrow;
@@ -66,41 +67,27 @@ class ImageController extends GetxController {
 
     final inputTensor = _convertImageToInputTensor(paddedImage);
 
-    // Output buffers with correct shapes and data types
-    final rawBoxes = List.generate(81840, (_) => List.filled(4, 0.0)); 
-    final multiclassScores = List.generate(100, (_) => List.filled(9, 0.0)); 
-    final outputClasses = List.filled(100, 0); 
-    final outputBoxes = List.generate(100, (_) => List.filled(4, 0.0)); 
-    final rawScores = List.generate(81840, (_) => List.filled(4, 0.0)); 
-    final numDetections = List.filled(1, 0.0); // Shape: (1)
-    final anchorIndices = List.filled(100, 0.0);
-    final outputScores = List.filled(100, 0.0);
+    // Allocate output buffers in the correct order
+    final rawBoxes = List.generate(81840, (_) => List.filled(4, 0.0)); // (1, 81840, 4)
+    final outputScores = List.filled(100, 0.0); // (1, 100)
+    final numDetections = List.filled(1, 0.0); // (1,)
+    final rawScores = List.generate(81840, (_) => List.filled(9, 0.0)); // (1, 81840, 9)
+    final outputBoxes = List.generate(100, (_) => List.filled(4, 0.0)); // (1, 100, 4)
+    final finalScores = List.filled(100, 0.0); // (1, 100)
+    final anchorIndices = List.filled(100, 0.0); // (1, 100)
+    final outputClasses = List.generate(100, (_) => List.filled(9, 0.0)); // (1, 100, 9)
 
-    try {
-      tfliteInterpreter.runForMultipleInputs([inputTensor], {
-        0: rawBoxes,
-        1: multiclassScores,
-        2: outputClasses,
-        3: outputBoxes,
-        4: rawScores,
-        5: numDetections,
-        6: anchorIndices,
-        7: outputScores,
-      });
-    } catch (e) {
-      print("Error during inference: $e");
-      return;
-    }
+    tfliteInterpreter.run([inputTensor], {
+      'raw_detection_boxes': rawBoxes,         // Output 0: (1, 81840, 4)
+      'detection_multiclass_scores': outputClasses,    // Output 7: (1, 100, 9)
+      'detection_classes': outputScores,     // Output 1: (1, 100)
+      'detection_boxes': outputBoxes,      // Output 4: (1, 100, 4)
+      'raw_detection_scores': rawScores,        // Output 3: (1, 81840, 9)
+      'num_detections': numDetections,    // Output 2: (1,)
+      'detection_anchor_indices': anchorIndices,    // Output 6: (1, 100)
+      'detection_scores': finalScores,      // Output 5: (1, 100)
+    });
 
-    final inputTensorTemp = tfliteInterpreter.getInputTensor(0);
-    print('Input tensor: Shape: ${inputTensorTemp.shape}, Type: ${inputTensorTemp.type}');
-
-    for (int i = 0; i < tfliteInterpreter.getOutputTensors().length; i++) {
-      final outputTensor = tfliteInterpreter.getOutputTensor(i);
-      print('Output tensor $i: Shape: ${outputTensor.shape}, Type: ${outputTensor.type}');
-    }
-
-    
     boundingBoxes.clear();
     extractedTexts.clear();
     for (int i = 0; i < outputScores.length; i++) {
@@ -115,9 +102,8 @@ class ImageController extends GetxController {
           originalHeight,
         );
         boundingBoxes.add(adjustedBox);
-
-        final classId = outputClasses[i];
-        final label = labelMap[classId];
+        final maxScoreIndex = outputClasses[i].indexOf(outputClasses[i].reduce((a, b) => a > b ? a : b));        
+        final label = labelMap[maxScoreIndex];        
         extractedTexts.add('$label (${(outputScores[i] * 100).toStringAsFixed(2)}%)');
       }
     }
@@ -156,10 +142,10 @@ class ImageController extends GetxController {
 
     for (int y = 0; y < height; y++) {
       for (int x = 0; x < width; x++) {
-        final pixel = paddedImage.getPixel(x, y); 
-        inputTensor[index++] = pixel.r.toInt(); 
+        final pixel = paddedImage.getPixel(x, y);
+        inputTensor[index++] = pixel.r.toInt();
         inputTensor[index++] = pixel.g.toInt();
-        inputTensor[index++] = pixel.b.toInt();  
+        inputTensor[index++] = pixel.b.toInt();
       }
     }
 
