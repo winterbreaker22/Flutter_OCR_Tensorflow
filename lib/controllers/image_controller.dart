@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'package:get/get.dart';
-import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import 'package:camera/camera.dart';
@@ -10,9 +9,9 @@ class ImageController extends GetxController {
   final RxList<Rect> boundingBoxes = RxList<Rect>();
   final RxList<String> extractedTexts = RxList<String>();
 
-  final int targetSize = 512; 
-  late Interpreter tfliteInterpreter;
-  late List<String> labelMap;
+  final int targetSize = 512; // Target size for input image
+  late List<String> labelMap; // Label map for class names
+  static const platform = MethodChannel('com.example.ocr_tf/tflite'); // Kotlin bridge
 
   @override
   void onInit() {
@@ -24,22 +23,8 @@ class ImageController extends GetxController {
   }
 
   Future<void> _loadModel() async {
-    try {
-      tfliteInterpreter = await Interpreter.fromAsset(
-        'assets/model.tflite',
-      );
-
-      final input_tensors = tfliteInterpreter.getInputTensors();
-      final output_tensors = tfliteInterpreter.getOutputTensors();
-      print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
-      print("tfliteInterpreter: $tfliteInterpreter");
-      print("input tensors: $input_tensors");
-      print("output tensors: $output_tensors");
-      print("Model loaded successfully.");
-    } catch (e) {
-      print('Error loading model: $e');
-      rethrow;
-    }
+    final String result = await platform.invokeMethod('loadInterpreter');
+    print("Interpreter load result: $result");
   }
 
   Future<void> _loadLabelMap() async {
@@ -72,51 +57,39 @@ class ImageController extends GetxController {
 
     final inputTensor = _convertImageToInputTensor(paddedImage);
 
-    // Allocate output buffers in the correct order
-    final rawBoxes = List.generate(81840, (_) => List.filled(4, 0.0)); // (1, 81840, 4)
-    final outputScores = List.filled(100, 0.0); // (1, 100)
-    final numDetections = List.filled(1, 0.0); // (1,)
-    final rawScores = List.generate(81840, (_) => List.filled(9, 0.0)); // (1, 81840, 9)
-    final outputBoxes = List.generate(100, (_) => List.filled(4, 0.0)); // (1, 100, 4)
-    final finalScores = List.filled(100, 0.0); // (1, 100)
-    final anchorIndices = List.filled(100, 0.0); // (1, 100)
-    final outputClasses = List.generate(100, (_) => List.filled(9, 0.0)); // (1, 100, 9)
+    try {
+      final Map<dynamic, dynamic> inferenceResults = await platform.invokeMethod('runModel', {
+        'inputTensor': inputTensor,
+      });
 
-    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
-    print("tfliteInterpreter: $tfliteInterpreter");
+      final List<dynamic> outputBoxes = inferenceResults['detection_boxes'];
+      final List<dynamic> outputScores = inferenceResults['detection_scores'];
+      final List<dynamic> outputClasses = inferenceResults['detection_classes'];
 
-    tfliteInterpreter.run([inputTensor], {
-      'raw_detection_boxes': rawBoxes,         // Output 0: (1, 81840, 4)
-      'detection_multiclass_scores': outputClasses,    // Output 7: (1, 100, 9)
-      'detection_classes': outputScores,     // Output 1: (1, 100)
-      'detection_boxes': outputBoxes,      // Output 4: (1, 100, 4)
-      'raw_detection_scores': rawScores,        // Output 3: (1, 81840, 9)
-      'num_detections': numDetections,    // Output 2: (1,)
-      'detection_anchor_indices': anchorIndices,    // Output 6: (1, 100)
-      'detection_scores': finalScores,      // Output 5: (1, 100)
-    });
+      boundingBoxes.clear();
+      extractedTexts.clear();
+      for (int i = 0; i < outputScores.length; i++) {
+        if (outputScores[i] >= 0.12) {
+          final adjustedBox = _adjustBoxToOriginalSize(
+            Rect.fromLTRB(
+              outputBoxes[i][1], outputBoxes[i][0], outputBoxes[i][3], outputBoxes[i][2]
+            ),
+            scaleFactors,
+            paddingOffsets,
+            originalWidth,
+            originalHeight,
+          );
+          boundingBoxes.add(adjustedBox);
 
-    boundingBoxes.clear();
-    extractedTexts.clear();
-    for (int i = 0; i < outputScores.length; i++) {
-      if (outputScores[i] >= 0.12) { 
-        final adjustedBox = _adjustBoxToOriginalSize(
-          Rect.fromLTRB(
-            outputBoxes[i][1], outputBoxes[i][0], outputBoxes[i][3], outputBoxes[i][2]
-          ),
-          scaleFactors,
-          paddingOffsets,
-          originalWidth,
-          originalHeight,
-        );
-        boundingBoxes.add(adjustedBox);
-        final maxScoreIndex = outputClasses[i].indexOf(outputClasses[i].reduce((a, b) => a > b ? a : b));        
-        final label = labelMap[maxScoreIndex];        
-        extractedTexts.add('$label (${(outputScores[i] * 100).toStringAsFixed(2)}%)');
+          final label = labelMap[outputClasses[i]];
+          extractedTexts.add('$label (${(outputScores[i] * 100).toStringAsFixed(2)}%)');
+        }
       }
-    }
 
-    Get.toNamed('/result');
+      Get.toNamed('/result');
+    } catch (e) {
+      print("Error running model: $e");
+    }
   }
 
   Map<String, dynamic> _preprocessImage(img.Image originalImage, int originalWidth, int originalHeight) {
