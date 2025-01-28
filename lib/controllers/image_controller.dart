@@ -10,26 +10,31 @@ class ImageController extends GetxController {
   final RxList<Rect> boundingBoxes = RxList<Rect>();
   final RxList<String> extractedTexts = RxList<String>();
 
-  final int targetSize = 512; // Target size for input tensor preprocessing
+  final int targetSize = 512; 
   late Interpreter tfliteInterpreter;
   late List<String> labelMap;
 
   @override
   void onInit() {
     super.onInit();
-    _loadModel();
-    _loadLabelMap();
+    Future.microtask(() async {
+      await _loadModel();
+      await _loadLabelMap();
+    });
   }
 
   Future<void> _loadModel() async {
     try {
-      final interpreterOptions = InterpreterOptions()
-        ..useNnApiForAndroid = true
-        ..addDelegate(XNNPackDelegate());
       tfliteInterpreter = await Interpreter.fromAsset(
         'assets/model.tflite',
-        options: interpreterOptions,
       );
+
+      final input_tensors = tfliteInterpreter.getInputTensors();
+      final output_tensors = tfliteInterpreter.getOutputTensors();
+      print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+      print("tfliteInterpreter: $tfliteInterpreter");
+      print("input tensors: $input_tensors");
+      print("output tensors: $output_tensors");
       print("Model loaded successfully.");
     } catch (e) {
       print('Error loading model: $e');
@@ -76,6 +81,9 @@ class ImageController extends GetxController {
     final finalScores = List.filled(100, 0.0); // (1, 100)
     final anchorIndices = List.filled(100, 0.0); // (1, 100)
     final outputClasses = List.generate(100, (_) => List.filled(9, 0.0)); // (1, 100, 9)
+
+    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+    print("tfliteInterpreter: $tfliteInterpreter");
 
     tfliteInterpreter.run([inputTensor], {
       'raw_detection_boxes': rawBoxes,         // Output 0: (1, 81840, 4)
