@@ -50,21 +50,6 @@ class ResultScreen extends StatelessWidget {
                 Center(
                   child: Text('No text detected', style: TextStyle(fontSize: 16, fontStyle: FontStyle.italic)),
                 ),
-              
-              if (extractedTexts.length > 8)
-                Center(
-                  child: ElevatedButton(
-                    onPressed: () {
-                      Get.snackbar(
-                        'All Text Detected', 
-                        extractedTexts.join('\n'), 
-                        snackPosition: SnackPosition.BOTTOM,
-                        duration: Duration(seconds: 5),
-                      );
-                    },
-                    child: Text('See More'),
-                  ),
-                ),
             ],
           ),
         ),
