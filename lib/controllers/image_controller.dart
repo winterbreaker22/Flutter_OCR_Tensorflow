@@ -17,7 +17,6 @@ class Detection {
 
 class ImageController extends GetxController {
   static const double detectionThreshold = 0.12;
-  final Rx<img.Image> capturedImage = Rx<img.Image>(img.Image(width: 1, height: 1));
   final RxList<Rect> boundingBoxes = RxList<Rect>();
   final RxList<String> extractedTexts = RxList<String>();
 
@@ -63,11 +62,14 @@ class ImageController extends GetxController {
     final paddedImage = preprocessResult['image'] as img.Image;
     final scaleFactors = preprocessResult['scaleFactors'] as Map<String, double>;
     final paddingOffsets = preprocessResult['paddingOffsets'] as Map<String, int>;
+    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+    print("padded_image: ${paddedImage.width}, ${paddedImage.height}");
+    print("scalefactors: $scaleFactors");
+    print("paddingOffsets: $paddingOffsets");
 
     final inputTensor = _convertImageToInputTensor(paddedImage);
 
     try {
-      // Call Kotlin to run the model
       final Map<dynamic, dynamic> results = await platform.invokeMethod(
         'runModel',
         {"inputTensor": inputTensor},
@@ -121,10 +123,9 @@ class ImageController extends GetxController {
           extractedTexts.add('${detection.label}: $extractedText');
         }
       }
+      
+      Get.toNamed('/result', arguments: {'image': finalImage, 'texts': extractedTexts});
 
-      capturedImage.value = finalImage;
-
-      Get.toNamed('/result');
     } catch (e) {
       print("Error running model: $e");
     }
@@ -178,29 +179,29 @@ class ImageController extends GetxController {
   }
 
   void _drawBoundingBox(img.Image image, Rect box) {
-  final color = img.ColorRgb8(255, 0, 0);  
-  final thickness = 2;
+    final color = img.ColorRgb8(255, 0, 0);  
+    final thickness = 2;
 
-  for (int x = box.left.round(); x < box.right.round(); x++) {
-    image.setPixel(x, box.top.round(), color);
-    image.setPixel(x, box.top.round() + thickness - 1, color);
-  }
+    for (int x = box.left.round(); x < box.right.round(); x++) {
+      image.setPixel(x, box.top.round(), color);
+      image.setPixel(x, box.top.round() + thickness - 1, color);
+    }
 
-  for (int x = box.left.round(); x < box.right.round(); x++) {
-    image.setPixel(x, box.bottom.round(), color);
-    image.setPixel(x, box.bottom.round() - thickness + 1, color);
-  }
+    for (int x = box.left.round(); x < box.right.round(); x++) {
+      image.setPixel(x, box.bottom.round(), color);
+      image.setPixel(x, box.bottom.round() - thickness + 1, color);
+    }
 
-  for (int y = box.top.round(); y < box.bottom.round(); y++) {
-    image.setPixel(box.left.round(), y, color);
-    image.setPixel(box.left.round() + thickness - 1, y, color);
-  }
+    for (int y = box.top.round(); y < box.bottom.round(); y++) {
+      image.setPixel(box.left.round(), y, color);
+      image.setPixel(box.left.round() + thickness - 1, y, color);
+    }
 
-  for (int y = box.top.round(); y < box.bottom.round(); y++) {
-    image.setPixel(box.right.round(), y, color);
-    image.setPixel(box.right.round() - thickness + 1, y, color);
+    for (int y = box.top.round(); y < box.bottom.round(); y++) {
+      image.setPixel(box.right.round(), y, color);
+      image.setPixel(box.right.round() - thickness + 1, y, color);
+    }
   }
-}
 
   Map<String, dynamic> _preprocessImage(img.Image originalImage) {
     final double scale = targetSize / originalImage.width < targetSize / originalImage.height
@@ -250,26 +251,36 @@ class ImageController extends GetxController {
     int originalWidth,
     int originalHeight,
   ) {
+    // Get the scaling factors for x and y
     final double xScale = scaleFactors['xScale']!;
     final double yScale = scaleFactors['yScale']!;
     final int xOffset = paddingOffsets['xOffset']!;
     final int yOffset = paddingOffsets['yOffset']!;
 
-    final double xmin = box.left * originalWidth;
-    final double ymin = box.top * originalHeight;
-    final double xmax = box.right * originalWidth;
-    final double ymax = box.bottom * originalHeight;
+    // Convert the normalized box coordinates from the 512x512 image to original image size
+    final double xmin = box.left * targetSize;  // The left normalized x value scaled to 512x512
+    final double ymin = box.top * targetSize;   // The top normalized y value scaled to 512x512
+    final double xmax = box.right * targetSize; // The right normalized x value scaled to 512x512
+    final double ymax = box.bottom * targetSize; // The bottom normalized y value scaled to 512x512
 
+    // Adjust for padding (offsets) and scale back to the original image
     final double adjustedXmin = (xmin - xOffset) / xScale;
     final double adjustedYmin = (ymin - yOffset) / yScale;
     final double adjustedXmax = (xmax - xOffset) / xScale;
     final double adjustedYmax = (ymax - yOffset) / yScale;
 
+    // Clamp the values to ensure they don't go out of bounds
+    final adjustedLeft = adjustedXmin.clamp(0.0, originalWidth.toDouble());
+    final adjustedTop = adjustedYmin.clamp(0.0, originalHeight.toDouble());
+    final adjustedRight = adjustedXmax.clamp(0.0, originalWidth.toDouble());
+    final adjustedBottom = adjustedYmax.clamp(0.0, originalHeight.toDouble());
+
+    // Return the adjusted bounding box in the original image size
     return Rect.fromLTRB(
-      adjustedXmin.clamp(0, originalWidth).toDouble(),
-      adjustedYmin.clamp(0, originalHeight).toDouble(),
-      adjustedXmax.clamp(0, originalWidth).toDouble(),
-      adjustedYmax.clamp(0, originalHeight).toDouble(),
+      adjustedLeft,
+      adjustedTop,
+      adjustedRight,
+      adjustedBottom,
     );
   }
 }
