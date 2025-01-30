@@ -18,18 +18,18 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
+    
         MethodChannel(flutterEngine!!.dartExecutor.binaryMessenger, channel).setMethodCallHandler { call, result ->
             when (call.method) {
                 "loadInterpreter" -> loadInterpreter(result)
                 "runModel" -> {
-                    val inputTensor = call.argument<ByteArray>("inputTensor")!!
+                    val inputTensor = call.argument<ByteArray>("inputTensor")!! // Retrieve from the map
                     runModel(inputTensor, result)
                 }
                 else -> result.notImplemented()
             }
         }
-    }
+    }    
 
     private fun loadInterpreter(result: MethodChannel.Result) {
         try {
@@ -48,30 +48,56 @@ class MainActivity : FlutterActivity() {
             result.error("ERROR", "Failed to load interpreter: ${e.message}", null)
         }
     }
-
+    
     private fun runModel(inputTensor: ByteArray, result: MethodChannel.Result) {
         try {
-            val inputBuffer = ByteBuffer.wrap(inputTensor).order(ByteOrder.nativeOrder())
-
-            val rawDetectionBoxes = Array(1) { Array(81840) { FloatArray(4) } }
-            val detectionScores = FloatArray(100)
-            val detectionClasses = FloatArray(100)
-
-            interpreter.runForMultipleInputsOutputs(arrayOf(inputBuffer), mapOf(
-                0 to rawDetectionBoxes,
-                1 to detectionScores,
-                2 to detectionClasses
-            ))
-
-            val outputMap = mapOf(
-                "detection_boxes" to rawDetectionBoxes[0].map { it.toList() },
-                "detection_scores" to detectionScores.toList(),
-                "detection_classes" to detectionClasses.toList()
+            // Convert ByteArray input to ByteBuffer
+            val inputBuffer = ByteBuffer.allocateDirect(inputTensor.size).apply {
+                order(ByteOrder.nativeOrder())
+                put(inputTensor)
+            }
+    
+            // Allocate output buffers based on the model's output shapes
+            val detectionClasses = Array(1) { FloatArray(100) } // Shape: [1, 100]
+            val detectionBoxes = Array(1) { Array(100) { FloatArray(4) } } // Shape: [1, 100, 4]
+            val detectionScores = Array(1) { FloatArray(100) } // Shape: [1, 100]
+            val detectionMulticlassScores = Array(1) { Array(100) { FloatArray(9) } } // Shape: [1, 100, 9]
+            val rawDetectionScores = Array(1) { FloatArray(100) } // Shape: [1, 100]
+            val numDetections = FloatArray(1) // Shape: [1]
+            val rawDetectionBoxes = Array(1) { Array(81840) { FloatArray(4) } } // Shape: [1, 81840, 4]
+            val detectionAnchorIndices = Array(1) { Array(81840) { FloatArray(9) } } // Shape: [1, 81840, 9]
+    
+            // Prepare the output map to match TensorFlow Lite model outputs
+            val outputs = mapOf(
+                0 to detectionScores,
+                1 to detectionBoxes,
+                2 to detectionClasses,
+                3 to detectionMulticlassScores,
+                4 to rawDetectionScores,
+                5 to numDetections,
+                6 to rawDetectionBoxes,
+                7 to detectionAnchorIndices
             )
-
-            result.success(outputMap)
+    
+            // Run inference
+            interpreter.runForMultipleInputsOutputs(arrayOf(inputBuffer), outputs)
+    
+            // Convert arrays to Lists for Flutter compatibility
+            val results = mapOf(
+                "detectionClasses" to detectionClasses[0].toList(),
+                "detectionBoxes" to detectionBoxes[0].map { it.toList() },
+                "detectionScores" to detectionScores[0].toList(),
+                "detectionMulticlassScores" to detectionMulticlassScores[0].map { it.toList() },
+                "rawDetectionScores" to rawDetectionScores[0].toList(),
+                "numDetections" to listOf(numDetections[0]), // Wrapping the scalar value in a List
+                "rawDetectionBoxes" to rawDetectionBoxes[0].map { it.toList() },
+                "detectionAnchorIndices" to detectionAnchorIndices[0].map { it.toList() }
+            )
+    
+            // Return the results to Flutter
+            result.success(results)
         } catch (e: Exception) {
             result.error("ERROR", "Failed to run model inference: ${e.message}", null)
         }
-    }
+    }    
 }

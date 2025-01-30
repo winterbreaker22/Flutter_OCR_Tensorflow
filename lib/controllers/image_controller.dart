@@ -1,17 +1,29 @@
-import 'dart:io';
 import 'package:get/get.dart';
-import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
-import 'package:camera/camera.dart';
+import 'package:flutter/services.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+
+class Detection {
+  final String label;
+  final double score;
+  final List<double> box;
+
+  Detection({
+    required this.label,
+    required this.score,
+    required this.box,
+  });
+}
 
 class ImageController extends GetxController {
-  final Rx<File?> capturedImage = Rx<File?>(null);
+  static const double detectionThreshold = 0.12;
+  final Rx<img.Image> capturedImage = Rx<img.Image>(img.Image(width: 1, height: 1));
   final RxList<Rect> boundingBoxes = RxList<Rect>();
   final RxList<String> extractedTexts = RxList<String>();
 
-  final int targetSize = 512; // Target size for input image
-  late List<String> labelMap; // Label map for class names
-  static const platform = MethodChannel('com.example.ocr_tf/tflite'); // Kotlin bridge
+  final int targetSize = 512;
+  late List<String> labelMap;
+  static const platform = MethodChannel('com.example.ocr_tf/tflite');
 
   @override
   void onInit() {
@@ -44,13 +56,10 @@ class ImageController extends GetxController {
     return labels;
   }
 
-  Future<void> processImage(XFile image) async {
-    final originalImageFile = File(image.path);
-    final img.Image originalImage = img.decodeImage(await originalImageFile.readAsBytes())!;
-    final originalWidth = originalImage.width;
-    final originalHeight = originalImage.height;
+  Future<void> processImage(img.Image image) async {
+    final img.Image originalImage = image;
 
-    final preprocessResult = _preprocessImage(originalImage, originalWidth, originalHeight);
+    final preprocessResult = _preprocessImage(originalImage);
     final paddedImage = preprocessResult['image'] as img.Image;
     final scaleFactors = preprocessResult['scaleFactors'] as Map<String, double>;
     final paddingOffsets = preprocessResult['paddingOffsets'] as Map<String, int>;
@@ -58,33 +67,62 @@ class ImageController extends GetxController {
     final inputTensor = _convertImageToInputTensor(paddedImage);
 
     try {
-      final Map<dynamic, dynamic> inferenceResults = await platform.invokeMethod('runModel', {
-        'inputTensor': inputTensor,
-      });
+      // Call Kotlin to run the model
+      final Map<dynamic, dynamic> results = await platform.invokeMethod(
+        'runModel',
+        {"inputTensor": inputTensor},
+      );
 
-      final List<dynamic> outputBoxes = inferenceResults['detection_boxes'];
-      final List<dynamic> outputScores = inferenceResults['detection_scores'];
-      final List<dynamic> outputClasses = inferenceResults['detection_classes'];
+      final List<List<double>> detectionBoxes = List<List<double>>.from(results['detectionBoxes'].map((e) => List<double>.from(e)));
+      final List<dynamic> detectionClassesRaw = results['detectionClasses'];
+      final List<int> detectionClasses = detectionClassesRaw.map((e) => (e is double) ? e.toInt() : e as int).toList();
+      final List<List<double>> detectionMultiClassScores = List<List<double>>.from(results['detectionMulticlassScores'].map((e) => List<double>.from(e)));
 
       boundingBoxes.clear();
       extractedTexts.clear();
-      for (int i = 0; i < outputScores.length; i++) {
-        if (outputScores[i] >= 0.12) {
+
+      final Map<String, Detection?> highestDetections = {};
+
+      for (int i = 0; i < detectionClasses.length; i++) {
+        final int classIndex = detectionClasses[i];
+        final String label = labelMap[classIndex - 1];
+
+        final double classScore = detectionMultiClassScores[i][classIndex];
+
+        if (classScore >= detectionThreshold) {
+          final detection = Detection(
+            label: label,
+            score: classScore,
+            box: detectionBoxes[i],
+          );
+
+          if (highestDetections[label] == null || classScore > highestDetections[label]!.score) {
+            highestDetections[label] = detection;
+          }
+        }
+      }
+
+      img.Image finalImage = originalImage.clone();
+      for (final detection in highestDetections.values) {
+        if (detection != null) {
           final adjustedBox = _adjustBoxToOriginalSize(
             Rect.fromLTRB(
-              outputBoxes[i][1], outputBoxes[i][0], outputBoxes[i][3], outputBoxes[i][2]
+              detection.box[1], detection.box[0], detection.box[3], detection.box[2]
             ),
             scaleFactors,
             paddingOffsets,
-            originalWidth,
-            originalHeight,
+            originalImage.width,
+            originalImage.height,
           );
-          boundingBoxes.add(adjustedBox);
 
-          final label = labelMap[outputClasses[i]];
-          extractedTexts.add('$label (${(outputScores[i] * 100).toStringAsFixed(2)}%)');
+          _drawBoundingBox(finalImage, adjustedBox);
+
+          final extractedText = await _extractTextFromBox(originalImage, adjustedBox);
+          extractedTexts.add('${detection.label}: $extractedText');
         }
       }
+
+      capturedImage.value = finalImage;
 
       Get.toNamed('/result');
     } catch (e) {
@@ -92,13 +130,85 @@ class ImageController extends GetxController {
     }
   }
 
-  Map<String, dynamic> _preprocessImage(img.Image originalImage, int originalWidth, int originalHeight) {
-    final double scale = targetSize / originalWidth < targetSize / originalHeight
-        ? targetSize / originalWidth
-        : targetSize / originalHeight;
+  Future<String> _extractTextFromBox(img.Image image, Rect box) async {
+    try {
+      if (box.left < 0 || box.top < 0 || box.right > image.width || box.bottom > image.height) {
+        print('Invalid bounding box: $box');
+        return ''; 
+      }
 
-    final newWidth = (originalWidth * scale).toInt();
-    final newHeight = (originalHeight * scale).toInt();
+      final croppedImage = img.copyCrop(
+        image,
+        x: box.left.round(),
+        y: box.top.round(),
+        width: box.width.round(),
+        height: box.height.round(),
+      );
+
+      final croppedImageBytes = Uint8List.fromList(img.encodeJpg(croppedImage));
+
+      final metadata = InputImageMetadata(
+        size: Size(croppedImage.width.toDouble(), croppedImage.height.toDouble()),
+        rotation: InputImageRotation.rotation0deg,
+        format: InputImageFormat.yuv420,
+        bytesPerRow: croppedImage.width,
+      );
+
+      final inputImage = InputImage.fromBytes(
+        bytes: croppedImageBytes,
+        metadata: metadata,
+      );
+
+      final textRecognizer = TextRecognizer();
+      final recognizedText = await textRecognizer.processImage(inputImage);
+      textRecognizer.close();
+
+      String resultText = '';
+      for (TextBlock block in recognizedText.blocks) {
+        for (TextLine line in block.lines) {
+          resultText += "${line.text} ";
+        }
+      }
+
+      return resultText.trim();
+    } catch (e) {
+      print('Error in _extractTextFromBox: $e');
+      return '';
+    }
+  }
+
+  void _drawBoundingBox(img.Image image, Rect box) {
+  final color = img.ColorRgb8(255, 0, 0);  
+  final thickness = 2;
+
+  for (int x = box.left.round(); x < box.right.round(); x++) {
+    image.setPixel(x, box.top.round(), color);
+    image.setPixel(x, box.top.round() + thickness - 1, color);
+  }
+
+  for (int x = box.left.round(); x < box.right.round(); x++) {
+    image.setPixel(x, box.bottom.round(), color);
+    image.setPixel(x, box.bottom.round() - thickness + 1, color);
+  }
+
+  for (int y = box.top.round(); y < box.bottom.round(); y++) {
+    image.setPixel(box.left.round(), y, color);
+    image.setPixel(box.left.round() + thickness - 1, y, color);
+  }
+
+  for (int y = box.top.round(); y < box.bottom.round(); y++) {
+    image.setPixel(box.right.round(), y, color);
+    image.setPixel(box.right.round() - thickness + 1, y, color);
+  }
+}
+
+  Map<String, dynamic> _preprocessImage(img.Image originalImage) {
+    final double scale = targetSize / originalImage.width < targetSize / originalImage.height
+        ? targetSize / originalImage.width
+        : targetSize / originalImage.height;
+
+    final newWidth = (originalImage.width * scale).toInt();
+    final newHeight = (originalImage.height * scale).toInt();
     final xOffset = (targetSize - newWidth) ~/ 2;
     final yOffset = (targetSize - newHeight) ~/ 2;
 
@@ -145,16 +255,21 @@ class ImageController extends GetxController {
     final int xOffset = paddingOffsets['xOffset']!;
     final int yOffset = paddingOffsets['yOffset']!;
 
-    final double xmin = (box.left - xOffset) / xScale;
-    final double xmax = (box.right - xOffset) / xScale;
-    final double ymin = (box.top - yOffset) / yScale;
-    final double ymax = (box.bottom - yOffset) / yScale;
+    final double xmin = box.left * originalWidth;
+    final double ymin = box.top * originalHeight;
+    final double xmax = box.right * originalWidth;
+    final double ymax = box.bottom * originalHeight;
+
+    final double adjustedXmin = (xmin - xOffset) / xScale;
+    final double adjustedYmin = (ymin - yOffset) / yScale;
+    final double adjustedXmax = (xmax - xOffset) / xScale;
+    final double adjustedYmax = (ymax - yOffset) / yScale;
 
     return Rect.fromLTRB(
-      xmin.clamp(0, originalWidth).toDouble(),
-      ymin.clamp(0, originalHeight).toDouble(),
-      xmax.clamp(0, originalWidth).toDouble(),
-      ymax.clamp(0, originalHeight).toDouble(),
+      adjustedXmin.clamp(0, originalWidth).toDouble(),
+      adjustedYmin.clamp(0, originalHeight).toDouble(),
+      adjustedXmax.clamp(0, originalWidth).toDouble(),
+      adjustedYmax.clamp(0, originalHeight).toDouble(),
     );
   }
 }

@@ -25,7 +25,7 @@ class MyApp extends StatelessWidget {
       initialRoute: '/',
       getPages: [
         GetPage(name: '/', page: () => const CameraScreen()),
-        GetPage(name: '/result', page: () => const ResultScreen()),
+        GetPage(name: '/result', page: () => ResultScreen()),
       ],
     );
   }

@@ -1,8 +1,9 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:get/get.dart';
 import 'package:camera/camera.dart';
+import 'package:get/get.dart';
+import 'package:image/image.dart' as img;
 import '../controllers/image_controller.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 class CameraScreen extends StatefulWidget {
   const CameraScreen({Key? key}) : super(key: key);
@@ -22,22 +23,13 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _initializeCamera() async {
-    // Request camera permission if it's not already granted
-    final status = await Permission.camera.request();
-    if (status.isDenied) {
-      // Handle the case when permission is denied
-      return;
-    }
-
     _cameras = await availableCameras();
-
     _cameraController = CameraController(
-      _cameras[1], // Use 0 for back camera
-      ResolutionPreset.medium,
+      _cameras[1], 
+      ResolutionPreset.high,
     );
 
     await _cameraController?.initialize();
-
     setState(() {});
   }
 
@@ -47,36 +39,46 @@ class _CameraScreenState extends State<CameraScreen> {
     super.dispose();
   }
 
+  Future<void> _captureImage() async {
+    final image = await _cameraController!.takePicture();
+    final file = File(image.path);
+
+    final capturedImage = img.decodeImage(file.readAsBytesSync())!;
+
+    final cropHeight = (capturedImage.height / 3).round();
+    final cropY = ((capturedImage.height - cropHeight) / 2).round(); 
+
+    final croppedImage = img.copyCrop(
+      capturedImage,
+      x: 0,
+      y: cropY,
+      width: capturedImage.width,
+      height: cropHeight,
+    );
+
+    final verticalFlippedImage = img.flipVertical(croppedImage);
+    // final flippedImage = img.flipHorizontal(verticalFlippedImage);
+
+    Get.find<ImageController>().processImage(verticalFlippedImage);
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Check if the camera controller is initialized
     if (_cameraController == null || !_cameraController!.value.isInitialized) {
       return const Center(child: CircularProgressIndicator());
     }
 
     return Scaffold(
       appBar: AppBar(title: const Text("Camera Preview")),
-      body: Stack(
-        children: [
-          // Display the camera preview
-          CameraPreview(_cameraController!),
-
-          // Capture button
-          Positioned(
-            bottom: 20,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: ElevatedButton(
-                onPressed: () async {
-                  final image = await _cameraController!.takePicture();
-                  Get.find<ImageController>().processImage(image);
-                },
-                child: const Text("Capture"),
-              ),
-            ),
-          ),
-        ],
+      body: Center(
+        child: CameraPreview(_cameraController!),
+      ),
+      bottomNavigationBar: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: ElevatedButton(
+          onPressed: _captureImage,
+          child: const Text("Capture"),
+        ),
       ),
     );
   }
