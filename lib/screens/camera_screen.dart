@@ -12,13 +12,14 @@ class CameraScreen extends StatefulWidget {
   State<CameraScreen> createState() => _CameraScreenState();
 }
 
-class _CameraScreenState extends State<CameraScreen> {
+class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver {
   late List<CameraDescription> _cameras;
   CameraController? _cameraController;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this); // Observe app lifecycle events
     _initializeCamera();
   }
 
@@ -34,7 +35,21 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+      return;
+    }
+
+    if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
+      _cameraController?.dispose(); // Dispose when the app is paused or inactive
+    } else if (state == AppLifecycleState.resumed) {
+      _initializeCamera(); // Reinitialize the camera when the app is resumed
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this); // Remove observer when disposed
     _cameraController?.dispose();
     super.dispose();
   }
@@ -57,7 +72,6 @@ class _CameraScreenState extends State<CameraScreen> {
     );
 
     final verticalFlippedImage = img.flipVertical(croppedImage);
-    // final flippedImage = img.flipHorizontal(verticalFlippedImage);
 
     Get.find<ImageController>().processImage(verticalFlippedImage);
   }

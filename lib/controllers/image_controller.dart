@@ -16,7 +16,7 @@ class Detection {
 }
 
 class ImageController extends GetxController {
-  static const double detectionThreshold = 0.12;
+  static const double detectionThreshold = 0.1;
   final RxList<Rect> boundingBoxes = RxList<Rect>();
   final RxList<String> extractedTexts = RxList<String>();
 
@@ -62,10 +62,6 @@ class ImageController extends GetxController {
     final paddedImage = preprocessResult['image'] as img.Image;
     final scaleFactors = preprocessResult['scaleFactors'] as Map<String, double>;
     final paddingOffsets = preprocessResult['paddingOffsets'] as Map<String, int>;
-    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
-    print("padded_image: ${paddedImage.width}, ${paddedImage.height}");
-    print("scalefactors: $scaleFactors");
-    print("paddingOffsets: $paddingOffsets");
 
     final inputTensor = _convertImageToInputTensor(paddedImage);
 
@@ -123,7 +119,7 @@ class ImageController extends GetxController {
           extractedTexts.add('${detection.label}: $extractedText');
         }
       }
-      
+
       Get.toNamed('/result', arguments: {'image': finalImage, 'texts': extractedTexts});
 
     } catch (e) {
@@ -138,6 +134,70 @@ class ImageController extends GetxController {
         return ''; 
       }
 
+      if (box.width < 32 || box.height < 32) {
+        double scaleX = 1.0;
+        double scaleY = 1.0;
+
+        if (box.width < 32) {
+          scaleX = 32 / box.width;
+        }
+        if (box.height < 32) {
+          scaleY = 32 / box.height;
+        }
+
+        double scale = scaleX > scaleY ? scaleX : scaleY;
+
+        final newWidth = (box.width * scale).round();
+        final newHeight = (box.height * scale).round();
+
+        final expandedBox = Rect.fromLTWH(
+          box.left,
+          box.top,
+          newWidth.toDouble(),
+          newHeight.toDouble(),
+        );
+
+        final croppedImage = img.copyCrop(
+          image,
+          x: expandedBox.left.round(),
+          y: expandedBox.top.round(),
+          width: expandedBox.width.round(),
+          height: expandedBox.height.round(),
+        );
+
+        final croppedImageBytes = Uint8List.fromList(img.encodeJpg(croppedImage));
+
+        final metadata = InputImageMetadata(
+          size: Size(expandedBox.width, expandedBox.height),
+          rotation: InputImageRotation.rotation0deg,
+          format: InputImageFormat.nv21,  
+          bytesPerRow: croppedImage.width,
+        );
+
+        final inputImage = InputImage.fromBytes(
+          bytes: croppedImageBytes,
+          metadata: metadata,
+        );
+
+        final textRecognizer = TextRecognizer();
+
+        final recognizedText = await textRecognizer.processImage(inputImage);
+        // print("input image: ${inputImage.}")
+
+        textRecognizer.close();
+
+        String resultText = '';
+        for (TextBlock block in recognizedText.blocks) {
+          for (TextLine line in block.lines) {
+            resultText += "${line.text} ";
+          }
+        }
+        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+        print("result Text: $resultText");
+
+        return resultText.trim();
+      }
+
       final croppedImage = img.copyCrop(
         image,
         x: box.left.round(),
@@ -149,9 +209,9 @@ class ImageController extends GetxController {
       final croppedImageBytes = Uint8List.fromList(img.encodeJpg(croppedImage));
 
       final metadata = InputImageMetadata(
-        size: Size(croppedImage.width.toDouble(), croppedImage.height.toDouble()),
+        size: Size(box.width, box.height),
         rotation: InputImageRotation.rotation0deg,
-        format: InputImageFormat.yuv420,
+        format: InputImageFormat.nv21,  
         bytesPerRow: croppedImage.width,
       );
 
@@ -161,7 +221,9 @@ class ImageController extends GetxController {
       );
 
       final textRecognizer = TextRecognizer();
+
       final recognizedText = await textRecognizer.processImage(inputImage);
+
       textRecognizer.close();
 
       String resultText = '';
@@ -172,6 +234,7 @@ class ImageController extends GetxController {
       }
 
       return resultText.trim();
+
     } catch (e) {
       print('Error in _extractTextFromBox: $e');
       return '';
@@ -251,31 +314,26 @@ class ImageController extends GetxController {
     int originalWidth,
     int originalHeight,
   ) {
-    // Get the scaling factors for x and y
     final double xScale = scaleFactors['xScale']!;
     final double yScale = scaleFactors['yScale']!;
     final int xOffset = paddingOffsets['xOffset']!;
     final int yOffset = paddingOffsets['yOffset']!;
 
-    // Convert the normalized box coordinates from the 512x512 image to original image size
-    final double xmin = box.left * targetSize;  // The left normalized x value scaled to 512x512
-    final double ymin = box.top * targetSize;   // The top normalized y value scaled to 512x512
-    final double xmax = box.right * targetSize; // The right normalized x value scaled to 512x512
-    final double ymax = box.bottom * targetSize; // The bottom normalized y value scaled to 512x512
+    final double xmin = box.left * targetSize;  
+    final double ymin = box.top * targetSize; 
+    final double xmax = box.right * targetSize; 
+    final double ymax = box.bottom * targetSize; 
 
-    // Adjust for padding (offsets) and scale back to the original image
     final double adjustedXmin = (xmin - xOffset) / xScale;
     final double adjustedYmin = (ymin - yOffset) / yScale;
     final double adjustedXmax = (xmax - xOffset) / xScale;
     final double adjustedYmax = (ymax - yOffset) / yScale;
 
-    // Clamp the values to ensure they don't go out of bounds
     final adjustedLeft = adjustedXmin.clamp(0.0, originalWidth.toDouble());
     final adjustedTop = adjustedYmin.clamp(0.0, originalHeight.toDouble());
     final adjustedRight = adjustedXmax.clamp(0.0, originalWidth.toDouble());
     final adjustedBottom = adjustedYmax.clamp(0.0, originalHeight.toDouble());
 
-    // Return the adjusted bounding box in the original image size
     return Rect.fromLTRB(
       adjustedLeft,
       adjustedTop,
