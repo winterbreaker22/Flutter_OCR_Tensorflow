@@ -19,7 +19,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this); // Observe app lifecycle events
+    WidgetsBinding.instance.addObserver(this); 
     _initializeCamera();
   }
 
@@ -41,15 +41,15 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
     }
 
     if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
-      _cameraController?.dispose(); // Dispose when the app is paused or inactive
+      _cameraController?.dispose();
     } else if (state == AppLifecycleState.resumed) {
-      _initializeCamera(); // Reinitialize the camera when the app is resumed
+      _initializeCamera(); 
     }
   }
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this); // Remove observer when disposed
+    WidgetsBinding.instance.removeObserver(this); 
     _cameraController?.dispose();
     super.dispose();
   }
@@ -83,7 +83,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text("Camera Preview")),
+      appBar: AppBar(title: const Text("Scan Document")),
       body: Center(
         child: CameraPreview(_cameraController!),
       ),
