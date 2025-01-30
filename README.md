@@ -1,16 +1,36 @@
 # ocr_tf
 
-A new Flutter project.
+A Flutter project for extracting specific information from photo.
 
-## Getting Started
+# Guide
 
-This project is a starting point for a Flutter application.
+- Update AndroidManifest.xml
 
-A few resources to get you started if this is your first Flutter project:
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.INTERNET"/>
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+- Assets
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+    assets/label_map.pbtxt
+    assets/model.tflite
+    android/app/src/main/assets/model.tflite
+
+- Image Controller
+ 
+    - Load Model
+    - Load LabelMapData, and parse
+    - Preprocess Image
+      Resizing, Padding with keeping aspect ratio
+    - Convert resized image to inputTensor
+    - Run Model
+    - Output handling
+      getting boxes data, find highest score box for each field
+    - Adjusting boxes to original size
+
+- android\app\src\main\kotlin\com\example\ocr_tf\MainActivity.kt
+
+    Consult this file
+    Loading and running model are done here and communicate with flutter by using MethodChannel platform (bridge)
+    
