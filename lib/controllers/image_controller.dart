@@ -1,4 +1,5 @@
 import 'package:get/get.dart';
+import 'dart:io';
 import 'package:image/image.dart' as img;
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
@@ -129,75 +130,6 @@ class ImageController extends GetxController {
 
   Future<String> _extractTextFromBox(img.Image image, Rect box) async {
     try {
-      if (box.left < 0 || box.top < 0 || box.right > image.width || box.bottom > image.height) {
-        print('Invalid bounding box: $box');
-        return ''; 
-      }
-
-      if (box.width < 32 || box.height < 32) {
-        double scaleX = 1.0;
-        double scaleY = 1.0;
-
-        if (box.width < 32) {
-          scaleX = 32 / box.width;
-        }
-        if (box.height < 32) {
-          scaleY = 32 / box.height;
-        }
-
-        double scale = scaleX > scaleY ? scaleX : scaleY;
-
-        final newWidth = (box.width * scale).round();
-        final newHeight = (box.height * scale).round();
-
-        final expandedBox = Rect.fromLTWH(
-          box.left,
-          box.top,
-          newWidth.toDouble(),
-          newHeight.toDouble(),
-        );
-
-        final croppedImage = img.copyCrop(
-          image,
-          x: expandedBox.left.round(),
-          y: expandedBox.top.round(),
-          width: expandedBox.width.round(),
-          height: expandedBox.height.round(),
-        );
-
-        final croppedImageBytes = Uint8List.fromList(img.encodeJpg(croppedImage));
-
-        final metadata = InputImageMetadata(
-          size: Size(expandedBox.width, expandedBox.height),
-          rotation: InputImageRotation.rotation0deg,
-          format: InputImageFormat.nv21,  
-          bytesPerRow: croppedImage.width,
-        );
-
-        final inputImage = InputImage.fromBytes(
-          bytes: croppedImageBytes,
-          metadata: metadata,
-        );
-
-        final textRecognizer = TextRecognizer();
-
-        final recognizedText = await textRecognizer.processImage(inputImage);
-        // print("input image: ${inputImage.}")
-
-        textRecognizer.close();
-
-        String resultText = '';
-        for (TextBlock block in recognizedText.blocks) {
-          for (TextLine line in block.lines) {
-            resultText += "${line.text} ";
-          }
-        }
-        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~");
-        print("result Text: $resultText");
-
-        return resultText.trim();
-      }
-
       final croppedImage = img.copyCrop(
         image,
         x: box.left.round(),
@@ -206,35 +138,38 @@ class ImageController extends GetxController {
         height: box.height.round(),
       );
 
-      final croppedImageBytes = Uint8List.fromList(img.encodeJpg(croppedImage));
+      img.Image expandedImage = croppedImage;
+      if (croppedImage.width < 64 || croppedImage.height < 64) {
+        double scaleX = croppedImage.width < 64 ? 64 / croppedImage.width : 1.0;
+        double scaleY = croppedImage.height < 64 ? 64 / croppedImage.height : 1.0;
 
-      final metadata = InputImageMetadata(
-        size: Size(box.width, box.height),
-        rotation: InputImageRotation.rotation0deg,
-        format: InputImageFormat.nv21,  
-        bytesPerRow: croppedImage.width,
-      );
+        double scale = scaleX > scaleY ? scaleX : scaleY;
 
-      final inputImage = InputImage.fromBytes(
-        bytes: croppedImageBytes,
-        metadata: metadata,
-      );
+        expandedImage = img.copyResize(
+          croppedImage,
+          width: (croppedImage.width * scale).round(),
+          height: (croppedImage.height * scale).round(),
+        );
+      }
+
+      final tempDir = Directory.systemTemp;
+      final tempFile = File('${tempDir.path}/expanded_image.jpg');
+      await tempFile.writeAsBytes(img.encodeJpg(expandedImage));
+
+      final inputImage = InputImage.fromFile(tempFile);
 
       final textRecognizer = TextRecognizer();
-
       final recognizedText = await textRecognizer.processImage(inputImage);
-
       textRecognizer.close();
 
       String resultText = '';
       for (TextBlock block in recognizedText.blocks) {
         for (TextLine line in block.lines) {
-          resultText += "${line.text} ";
+          resultText += "${line.text}, ";
         }
       }
 
       return resultText.trim();
-
     } catch (e) {
       print('Error in _extractTextFromBox: $e');
       return '';
