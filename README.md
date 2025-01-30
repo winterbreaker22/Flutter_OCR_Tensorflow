@@ -11,6 +11,15 @@ A Flutter project for extracting specific information from photo.
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
     <uses-permission android:name="android.permission.INTERNET"/>
 
+- android/app/build.gradle
+
+    dependencies {
+      implementation 'org.tensorflow:tensorflow-lite:2.15.0' 
+      implementation 'org.tensorflow:tensorflow-lite-select-tf-ops:2.15.0'
+    }
+
+- Gradle Sync in Android Studio    
+
 - Assets
 
     assets/label_map.pbtxt

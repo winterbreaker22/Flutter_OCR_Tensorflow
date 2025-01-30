@@ -23,7 +23,7 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
                 "loadInterpreter" -> loadInterpreter(result)
                 "runModel" -> {
-                    val inputTensor = call.argument<ByteArray>("inputTensor")!! // Retrieve from the map
+                    val inputTensor = call.argument<ByteArray>("inputTensor")!! 
                     runModel(inputTensor, result)
                 }
                 else -> result.notImplemented()
@@ -51,23 +51,20 @@ class MainActivity : FlutterActivity() {
     
     private fun runModel(inputTensor: ByteArray, result: MethodChannel.Result) {
         try {
-            // Convert ByteArray input to ByteBuffer
             val inputBuffer = ByteBuffer.allocateDirect(inputTensor.size).apply {
                 order(ByteOrder.nativeOrder())
                 put(inputTensor)
             }
     
-            // Allocate output buffers based on the model's output shapes
-            val detectionClasses = Array(1) { FloatArray(100) } // Shape: [1, 100]
-            val detectionBoxes = Array(1) { Array(100) { FloatArray(4) } } // Shape: [1, 100, 4]
-            val detectionScores = Array(1) { FloatArray(100) } // Shape: [1, 100]
-            val detectionMulticlassScores = Array(1) { Array(100) { FloatArray(9) } } // Shape: [1, 100, 9]
-            val rawDetectionScores = Array(1) { FloatArray(100) } // Shape: [1, 100]
-            val numDetections = FloatArray(1) // Shape: [1]
-            val rawDetectionBoxes = Array(1) { Array(81840) { FloatArray(4) } } // Shape: [1, 81840, 4]
-            val detectionAnchorIndices = Array(1) { Array(81840) { FloatArray(9) } } // Shape: [1, 81840, 9]
+            val detectionClasses = Array(1) { FloatArray(100) } 
+            val detectionBoxes = Array(1) { Array(100) { FloatArray(4) } }
+            val detectionScores = Array(1) { FloatArray(100) } 
+            val detectionMulticlassScores = Array(1) { Array(100) { FloatArray(9) } } 
+            val rawDetectionScores = Array(1) { FloatArray(100) } 
+            val numDetections = FloatArray(1)
+            val rawDetectionBoxes = Array(1) { Array(81840) { FloatArray(4) } } 
+            val detectionAnchorIndices = Array(1) { Array(81840) { FloatArray(9) } } 
     
-            // Prepare the output map to match TensorFlow Lite model outputs
             val outputs = mapOf(
                 0 to detectionScores,
                 1 to detectionBoxes,
@@ -79,22 +76,19 @@ class MainActivity : FlutterActivity() {
                 7 to detectionAnchorIndices
             )
     
-            // Run inference
             interpreter.runForMultipleInputsOutputs(arrayOf(inputBuffer), outputs)
     
-            // Convert arrays to Lists for Flutter compatibility
             val results = mapOf(
                 "detectionClasses" to detectionClasses[0].toList(),
                 "detectionBoxes" to detectionBoxes[0].map { it.toList() },
                 "detectionScores" to detectionScores[0].toList(),
                 "detectionMulticlassScores" to detectionMulticlassScores[0].map { it.toList() },
                 "rawDetectionScores" to rawDetectionScores[0].toList(),
-                "numDetections" to listOf(numDetections[0]), // Wrapping the scalar value in a List
+                "numDetections" to listOf(numDetections[0]), 
                 "rawDetectionBoxes" to rawDetectionBoxes[0].map { it.toList() },
                 "detectionAnchorIndices" to detectionAnchorIndices[0].map { it.toList() }
             )
     
-            // Return the results to Flutter
             result.success(results)
         } catch (e: Exception) {
             result.error("ERROR", "Failed to run model inference: ${e.message}", null)
