@@ -26,7 +26,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
   Future<void> _initializeCamera() async {
     _cameras = await availableCameras();
     _cameraController = CameraController(
-      _cameras[1], 
+      _cameras[0], 
       ResolutionPreset.high,
     );
 
@@ -60,20 +60,20 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
 
     final capturedImage = img.decodeImage(file.readAsBytesSync())!;
 
-    final cropHeight = (capturedImage.height / 3).round();
-    final cropY = ((capturedImage.height - cropHeight) / 2).round(); 
+    // final cropHeight = (capturedImage.height / 3).round();
+    // final cropY = ((capturedImage.height - cropHeight) / 2).round(); 
 
-    final croppedImage = img.copyCrop(
-      capturedImage,
-      x: 0,
-      y: cropY,
-      width: capturedImage.width,
-      height: cropHeight,
-    );
+    // final croppedImage = img.copyCrop(
+    //   capturedImage,
+    //   x: 0,
+    //   y: cropY,
+    //   width: capturedImage.width,
+    //   height: cropHeight,
+    // );
 
-    final verticalFlippedImage = img.flipVertical(croppedImage);
+    // final verticalFlippedImage = img.flipVertical(croppedImage);
 
-    Get.find<ImageController>().processImage(verticalFlippedImage);
+    Get.find<ImageController>().processImage(capturedImage);
   }
 
   @override
