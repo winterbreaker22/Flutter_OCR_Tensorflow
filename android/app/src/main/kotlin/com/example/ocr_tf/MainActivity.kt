@@ -10,7 +10,7 @@ import java.nio.ByteOrder
 import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
 import java.io.FileInputStream
-// Swift need for iOS
+
 class MainActivity : FlutterActivity() {
 
     private val channel = "com.example.ocr_tf/tflite"
