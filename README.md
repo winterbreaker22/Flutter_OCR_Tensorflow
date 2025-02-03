@@ -104,3 +104,12 @@ A Flutter project for extracting specific information from photo.
     Consult this file
     Loading and running model are done here and communicate with flutter by using MethodChannel platform (bridge)
     
+
+
+
+# iOS
+
+- ios/Runner/AppDelegate.swift
+
+    Need to edit this file for native bridge to load and run model on iOS
+
