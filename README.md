@@ -113,37 +113,14 @@ A Flutter project for extracting specific information from photo.
 
     Need to edit this file for native bridge to load and run model on iOS
 
-- In order to use FlexDelegate
+- podfile
 
-    ios/Runner/Bridging-Header.h
+    pod 'TensorFlowLiteC'
+    pod 'TensorFlowLiteSwift'
+    pod 'TensorFlowLiteSelectTfOps', '~> 0.0.1-nightly'
 
-        #import <TensorFlowLiteC/TensorFlowLiteC.h>
-        #import <TensorFlowLiteSelectTfOps/TensorFlowLiteSelectTfOps.h>
+- Other Linker Flags in Build Settings
 
-    podfile
+    Add below line
 
-        pod 'TensorFlowLiteC'
-        pod 'TensorFlowLiteSelectTfOps'
-
-    Build Setting in XCode
-
-        - Header Search Paths
-         
-            $(inherited)
-            $(PODS_ROOT)/TensorFlowLiteC
-            $(PODS_ROOT)/TensorFlowLiteSelectTfOps
-
-        - Objective-C Bridge Header
-
-            Runner/Bridging-Header.h
-
-        - Other Linker Flags
-
-            -force_load $(PODS_ROOT)/TensorFlowLiteSelectTfOps/libTensorFlowLiteSelectTfOps.a
-
-        -  Allow Non-modular Includes in Framework Modules to YES
-
-        - Link Binary with Libraries
-
-            libTensorFlowLiteC.a
-            libTensorFlowLiteSelectTfOps.a
+    - force_load $(SRCROOT)/Pods/TensorFlowLiteSelectTfOps/Frameworks/TensorFlowLiteSelectTfOps.xcframework/ios-arm64/TensorFlowLiteSelectTfOps.framework/         TensorFlowLiteSelectTfOps
